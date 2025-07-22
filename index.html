@@ -21,6 +21,45 @@
         }
       }
     </script>
+    <!-- 
+    <script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const data = {
+      path: window.location.pathname,
+      referrer: document.referrer,
+      userAgent: navigator.userAgent,
+      event: 'page_view'
+    };
+
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("http://localhost:8000/track", JSON.stringify(data));
+    } else {
+      fetch("http://localhost:8000/track", {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        keepalive: true
+      });
+    }
+  });
+</script>
+-->
+<!--
+    <script>
+(function(){
+  const data = {
+    path: window.location.pathname,
+    referrer: document.referrer,
+    userAgent: navigator.userAgent,
+    event: 'page_view'
+  };
+
+  navigator.sendBeacon("http://localhost:8000/track", JSON.stringify(data));
+})();
+</script>
+-->
   </head>
   <body class="bg-gray-50">
     <!-- Hero Section -->
@@ -240,5 +279,149 @@
         </div>
       </div>
     </section>
+<script>
+(function () {
+  // ====== 🧠 Configs ======
+  const TRACKING_ENDPOINT = "http://localhost:8000/track";
+  const USER_KEY = "boostrank_user_id";
+  const SESSION_KEY = "boostrank_session_id";
+  const SESSION_TIMEOUT_MINUTES = 30;
+
+  // ====== 🔐 Generate UUID ======
+  function generateId() {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  }
+
+  // ====== 🍪 User ID ======
+  let userId = localStorage.getItem(USER_KEY);
+  if (!userId) {
+    userId = generateId();
+    localStorage.setItem(USER_KEY, userId);
+  }
+
+  // ====== 🧭 UTM Parsing ======
+  const params = new URLSearchParams(window.location.search);
+  const utm = {
+    utm_source: params.get("utm_source"),
+    utm_medium: params.get("utm_medium"),
+    utm_campaign: params.get("utm_campaign"),
+    utm_term: params.get("utm_term"),
+    utm_content: params.get("utm_content")
+  };
+
+  // ====== 🕒 Session Management ======
+  let sessionId = sessionStorage.getItem(SESSION_KEY);
+  const now = Date.now();
+
+  if (!sessionId || (now - Number(sessionStorage.getItem("last_active") || 0)) > SESSION_TIMEOUT_MINUTES * 60 * 1000) {
+    sessionId = generateId();
+  }
+
+  sessionStorage.setItem(SESSION_KEY, sessionId);
+  sessionStorage.setItem("last_active", now.toString());
+
+  // ====== ⌛ Time on Page & Scroll ======
+  let startTime = Date.now();
+  let maxScroll = 0;
+
+  window.addEventListener("scroll", function () {
+    const scrolled = (window.scrollY + window.innerHeight) / document.body.scrollHeight;
+    maxScroll = Math.max(maxScroll, Math.min(1, scrolled));
+  });
+
+  // ====== 📤 Send tracking data function ======
+  function sendTrackingData(eventType = "page_view") {
+    const endTime = Date.now();
+    const timeSpent = Math.round((endTime - startTime) / 1000); // in seconds
+    const isBounce = timeSpent < 5;
+
+    const data = {
+      path: window.location.pathname,
+      referrer: document.referrer || null,
+      userAgent: navigator.userAgent,
+      user_id: userId,
+      session_id: sessionId,
+      time_spent: timeSpent,
+      scroll_percent: Math.round(maxScroll * 100),
+      is_bounce: isBounce,
+      event: eventType,
+      utm_source: utm.utm_source,
+      utm_medium: utm.utm_medium,
+      utm_campaign: utm.utm_campaign,
+      utm_term: utm.utm_term,
+      utm_content: utm.utm_content
+    };
+
+    // Use fetch with keepalive for better reliability
+    fetch(TRACKING_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+      keepalive: true
+    }).then(response => {
+      if (!response.ok) {
+        console.error('Tracking failed:', response.status, response.statusText);
+      }
+    }).catch(err => {
+      console.error('Tracking error:', err);
+    });
+  }
+
+  // ====== 🚀 Track page load immediately ======
+  window.addEventListener("load", function() {
+    sendTrackingData("page_load");
+  });
+
+  // ====== 🚪 Track page unload ======
+  window.addEventListener("beforeunload", function () {
+    sendTrackingData("page_unload");
+  });
+
+  // ====== 👀 Track page visibility changes ======
+  document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === 'hidden') {
+      sendTrackingData("page_hidden");
+    }
+  });
+
+  // ====== 🖱️ Track clicks on important elements (optional) ======
+  document.addEventListener("click", function(e) {
+    // Track clicks on links, buttons, and elements with data-track attribute
+    if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' || e.target.hasAttribute('data-track')) {
+      const clickData = {
+        path: window.location.pathname,
+        referrer: document.referrer || null,
+        userAgent: navigator.userAgent,
+        user_id: userId,
+        session_id: sessionId,
+        time_spent: Math.round((Date.now() - startTime) / 1000),
+        scroll_percent: Math.round(maxScroll * 100),
+        is_bounce: false,
+        event: "click",
+        utm_source: utm.utm_source,
+        utm_medium: utm.utm_medium,
+        utm_campaign: utm.utm_campaign,
+        utm_term: utm.utm_term,
+        utm_content: utm.utm_content
+      };
+
+      fetch(TRACKING_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(clickData)
+      }).catch(err => {
+        console.error('Click tracking error:', err);
+      });
+    }
+  });
+
+})();
+</script>
   </body>
 </html>
